@@ -74,32 +74,52 @@ def kick_client(nickname, client, message):
             to_kick_client.send(f"{SERVER_MESSAGE_PREFIX} You have been kicked out by {nickname}".encode(ENCODING_FORMAT))
             to_kick_client.send("END".encode(ENCODING_FORMAT))
             del clients[to_kick]
-            print(clients)
     else:
         client.send(f"{SERVER_MESSAGE_PREFIX} You have to be an admin to use this command".encode(ENCODING_FORMAT))
 
+def rename_client(nickname, client, message):
+    new_name = message.split()[-1]
+    clients[new_name] = clients.pop(nickname)
+    client.send(f"RENAME {new_name}".encode(ENCODING_FORMAT))
+    client.send(f"{SERVER_MESSAGE_PREFIX} You renamed to {nickname}".encode(ENCODING_FORMAT))
+    broadcast(f"{SERVER_MESSAGE_PREFIX} {nickname} renamed to {new_name}", client)
+    print(f"RENAME {nickname} to {new_name}")
 
-def broadcast(message, sender):
+def broadcast(message, sender, encode=True):
     for client in clients:
         if clients[client] != sender:
-            clients[client].send(message.encode(ENCODING_FORMAT))
+            if encode:
+                clients[client].send(message.encode(ENCODING_FORMAT))
+            else:
+                clients[client].sendall(message)
 
 def handle_clients(nickname, client, address):
     while True:
         try:
-            message = client.recv(1024).decode(ENCODING_FORMAT)
-            # print(message)
-            if "ADMIN LOGIN" in message:
-                admin_login(nickname, client, message)
-            elif "KICK" in message:
-                kick_client(nickname, client, message)
-            else:
-                broadcast(message, client)
+            message = client.recv(1024)
+            if message[:7] == b"<START>":
+                print(f"Receiving file from {nickname}")
+                data_buffer = message
+                while data_buffer[-5:] != b"<END>":
+                    data = client.recv(1024)
+                    data_buffer += data
+                print(f"Broadcasting file from {nickname}")
+                broadcast(data_buffer, client, encode=False)
+            else:     
+                message = message.decode()
+                if "ADMIN LOGIN" in message:
+                    admin_login(nickname, client, message)
+                elif "KICK" in message:
+                    kick_client(nickname, client, message)
+                elif "RENAME" in message:
+                    rename_client(nickname, client, message)
+                else:
+                    broadcast(message, client)
         except Exception as e:
             del clients[nickname]
             broadcast(f"{SERVER_MESSAGE_PREFIX} {nickname} disconnected", client)
             print(f"DISCONNECT {nickname} | {address}")
-            print(e)
+            print(e.__class__, e)
             break
 
 def receive_clients():
